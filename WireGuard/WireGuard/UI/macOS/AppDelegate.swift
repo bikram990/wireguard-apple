@@ -58,6 +58,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.tunnelsTracker = tunnelsTracker
                 self.statusItemController = statusItemController
 
+                if #available(macOS 10.15, *) {
+                    tunnelsManager.catalinaWorkaroundUIDelegate = self
+                }
+
                 if !isLaunchedAtLogin {
                     self.showManageTunnelsWindow(completion: nil)
                 }
@@ -248,4 +252,27 @@ func registerLoginItem(shouldLaunchAtLogin: Bool) -> Bool {
     let appId = Bundle.main.bundleIdentifier!
     let helperBundleId = "\(appId).login-item-helper"
     return SMLoginItemSetEnabled(helperBundleId as CFString, shouldLaunchAtLogin)
+}
+
+@available(macOS 10.15, *)
+extension AppDelegate: CatalinaWorkaroundUIDelegate {
+    func shouldReinstateAllTunnelsDeletedOutsideApp(completion: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Restoring all tunnels"
+        alert.informativeText = "All tunnels have been deleted outside the app. Do you want to restore all the tunnels?"
+
+        alert.addButton(withTitle: "Restore All")
+        alert.addButton(withTitle: "Cancel")
+
+        NSApp.activate(ignoringOtherApps: true)
+        if let manageWindow = manageTunnelsWindowObject {
+            manageWindow.orderFront(self)
+            alert.beginSheetModal(for: manageWindow) { response in
+                completion(response == .alertFirstButtonReturn)
+            }
+        } else {
+            let response = alert.runModal()
+            completion(response == .alertFirstButtonReturn)
+        }
+    }
 }

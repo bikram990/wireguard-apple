@@ -662,6 +662,11 @@ extension NETunnelProviderManager {
 
 #if os(macOS)
 @available(macOS 10.15, *)
+protocol CatalinaWorkaroundUIDelegate: class {
+    func shouldReinstateAllTunnelsDeletedOutsideApp(completion: @escaping (Bool) -> Void)
+}
+
+@available(macOS 10.15, *)
 class CatalinaWorkaround {
 
     // In macOS Catalina, for some users, the tunnels get deleted arbitrarily
@@ -672,6 +677,7 @@ class CatalinaWorkaround {
     // in the keychain.
 
     unowned let tunnelsManager: TunnelsManager
+    weak var uiDelegate: CatalinaWorkaroundUIDelegate?
     private var configChangeSubscriber: Any?
 
     struct ReinstationData {
@@ -701,7 +707,16 @@ class CatalinaWorkaround {
 
     func reinstateTunnelsDeletedOutsideApp() {
         let rd = reinstationDataForTunnelsDeletedOutsideApp()
-        reinstateTunnels(ArraySlice(rd), completionHandler: nil)
+        guard !rd.isEmpty else { return }
+        if self.tunnelsManager.tunnels.isEmpty {
+            uiDelegate?.shouldReinstateAllTunnelsDeletedOutsideApp { [weak self] shouldReinstate in
+                if shouldReinstate {
+                    self?.reinstateTunnels(ArraySlice(rd), completionHandler: nil)
+                }
+            }
+        } else {
+            reinstateTunnels(ArraySlice(rd), completionHandler: nil)
+        }
     }
 
     private func reinstateTunnels(_ rdArray: ArraySlice<ReinstationData>, completionHandler: (() -> Void)?) {
@@ -752,6 +767,20 @@ class CatalinaWorkaround {
 #if os(macOS)
 @available(macOS 10.15, *)
 extension TunnelsManager {
+    var catalinaWorkaroundUIDelegate: CatalinaWorkaroundUIDelegate? {
+        get {
+            return (self.catalinaWorkaround as? CatalinaWorkaround)?.uiDelegate
+        }
+        set(value) {
+            if let cw = (self.catalinaWorkaround as? CatalinaWorkaround) {
+                cw.uiDelegate = value
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak cw] in
+                    cw?.reinstateTunnelsDeletedOutsideApp()
+                }
+            }
+        }
+    }
+
     fileprivate func reinstateTunnel(reinstationData: CatalinaWorkaround.ReinstationData, completionHandler: @escaping (Bool) -> Void) {
         let tunnelName = reinstationData.tunnelConfiguration.name ?? ""
         if tunnelName.isEmpty {
